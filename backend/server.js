@@ -115,17 +115,18 @@ const verificarSessaoApi = (req, res, next) => {
   return res.status(401).json({ success: false, message: 'Não autorizado. Faça login novamente.' });
 };
 
-// 1. BLOQUEIO TOTAL IMEDIATO: Nenhuma página protegida ou arquivo HTML interno é acessível sem sessão
+// 1. BLOQUEIO TOTAL E ENTREGA SEGURA DE PÁGINAS PROTEGIDAS
 app.use((req, res, next) => {
   const caminho = req.path.toLowerCase();
 
-  // Rotas, páginas públicas e recursos estáticos permitidos sem login
+  // Recursos públicos que podem carregar livremente sem login
   if (
     caminho === '/login.html' || 
     caminho === '/index.html' ||
     caminho === '/' ||
     caminho === '/api/login' || 
     caminho === '/api/check-session' ||
+    caminho === '/auth-guard.js' || // Essencial para o guard carregar!
     caminho.endsWith('.css') || 
     caminho.endsWith('.js') || 
     caminho.endsWith('.png') || 
@@ -138,7 +139,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Se for qualquer API protegida e não estiver autenticado
+  // Se for qualquer chamada de API protegida sem sessão
   if (caminho.startsWith('/api/')) {
     if (!req.session || !req.session.autenticado) {
       return res.status(401).json({ success: false, message: 'Não autorizado.' });
@@ -146,7 +147,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Se o usuário tentar acessar qualquer HTML interno (dashboard, usuarios, etc.) sem sessão
+  // Se for qualquer tentativa de acessar páginas HTML sem estar autenticado, expulsa imediatamente
   if (!req.session || !req.session.autenticado) {
     return res.redirect('/index.html');
   }
@@ -154,7 +155,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 2. Servir arquivos estáticos (agora protegidos pelo middleware acima)
+// 2. Servir os arquivos da pasta frontend de forma segura após a barreira
 app.use(express.static(PASTA_FRONTEND));
 
 // 5. CONEXÃO COM O BANCO DE DADOS MYSQL
