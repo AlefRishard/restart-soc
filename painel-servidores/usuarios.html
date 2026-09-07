@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RESTART - Gerenciamento de Usuários</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo-icon-sm"><i class="fa-solid fa-ticket"></i></div>
+        <h2>RESTART <span>| Gestão de Usuários</span></h2>
+      </div>
+      <nav class="nav-links">
+        <a href="dashboard.html" class="nav-item"><i class="fa-solid fa-server"></i> Servidores</a>
+        <a href="monitoramento.html" class="nav-item"><i class="fa-solid fa-heart-pulse"></i> Monitoramento</a>
+        <a href="usuarios.html" class="nav-item active"><i class="fa-solid fa-users"></i> Usuários</a>
+        <a href="#" onclick="fazerLogout()" class="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Sair</a>
+      </nav>
+    </header>
+
+    <main class="content">
+      <!-- Card: Cadastro de Usuário -->
+      <section class="card-painel card-dark">
+        <div class="card-header">
+          <h3 id="form-usuario-titulo"><i class="fa-solid fa-user-plus"></i> Cadastrar Novo Usuário</h3>
+        </div>
+        <form id="form-usuario">
+          <input type="hidden" id="usr-id">
+
+          <div class="form-grid">
+            <div class="form-group span-2">
+              <label for="usr-nome">Nome Completo</label>
+              <input type="text" id="usr-nome" autocomplete="name" placeholder="Ex: João Silva" required>
+            </div>
+
+            <div class="form-group span-2">
+              <label for="usr-email">E-mail de Acesso</label>
+              <input type="email" id="usr-email" autocomplete="email" placeholder="usuario@samel.com.br" required>
+            </div>
+
+            <div class="form-group span-2">
+              <label for="usr-perfil">Nível de Permissão</label>
+              <select id="usr-perfil" required class="custom-select" style="width: 100%; padding: 10px; background: #111827; color: #fff; border: 1px solid #374151; border-radius: 6px;">
+                <option value="Operador">Operador (Apenas Restart)</option>
+                <option value="Administrador">Administrador (Acesso Total)</option>
+              </select>
+            </div>
+
+            <div class="form-group span-2">
+              <label for="usr-pass">Senha Inicial</label>
+              <div class="input-password-wrapper" style="position: relative; display: flex; align-items: center;">
+                <input type="password" id="usr-pass" autocomplete="new-password" placeholder="••••••••••••" required style="width: 100%; padding-right: 35px;">
+                <button type="button" id="toggle-senha-usr" class="btn-eye" title="Mostrar/Ocultar Senha" style="position: absolute; right: 12px; background: none; border: none; cursor: pointer;">
+                  <i class="fa-solid fa-eye" style="color: #8e9a9d;"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botões de Ação do Formulário -->
+          <div style="margin-top: 24px; display: flex; gap: 10px; justify-content: flex-start; align-items: center;">
+            <button type="submit" id="btn-submit-usr" style="background-color: #198754; color: #ffffff; border: none; padding: 12px 28px; font-weight: bold; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+              <i class="fa-solid fa-user-check" style="color: #ffffff;"></i> <span id="btn-submit-usr-text">Salvar Usuário</span>
+            </button>
+            <button type="button" id="btn-cancel-edit-usr" class="btn-cancel" onclick="limparFormularioUsuario && limparFormularioUsuario()" style="display: none; padding: 12px 20px; background: #374151; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
+              <i class="fa-solid fa-xmark"></i> Cancelar
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Card: Lista de Usuários -->
+      <section class="card-painel card-dark" style="margin-top: 25px;">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-users-gear"></i> Usuários Cadastrados</h3>
+        </div>
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>E-mail</th>
+                <th>Perfil</th>
+                <th>Status</th>
+                <th style="text-align: center;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="lista-usuarios">
+              <tr>
+                <td colspan="5" style="text-align: center; color: #8e9a9d; padding: 20px;">
+                  <i class="fa-solid fa-spinner fa-spin"></i> Carregando usuários...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // Toggle de visualização da senha no cadastro/edição de usuário
+    document.addEventListener('DOMContentLoaded', () => {
+      const btnToggleUsr = document.getElementById('toggle-senha-usr');
+      const inputUsrPass = document.getElementById('usr-pass');
+      if (btnToggleUsr && inputUsrPass) {
+        btnToggleUsr.addEventListener('click', () => {
+          const tipo = inputUsrPass.getAttribute('type') === 'password' ? 'text' : 'password';
+          inputUsrPass.setAttribute('type', tipo);
+          const icon = btnToggleUsr.querySelector('i');
+          if (icon) {
+            icon.classList.toggle('fa-eye');
+            icon.classList.toggle('fa-eye-slash');
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

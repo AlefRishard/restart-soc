@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RESTART | Histórico de Ações</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css"> <!-- Seu CSS padrão -->
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="logo">
+      <i class="fa-solid fa-server"></i> <strong>RESTART</strong> | Histórico
+    </div>
+    <div class="nav-links">
+      <a href="dashboard.html"><i class="fa-solid fa-chart-line"></i> Servidores</a>
+      <a href="historico.html" class="active"><i class="fa-solid fa-clock-rotate-left"></i> Histórico</a>
+      <a href="usuarios.html" id="nav-item-usuarios"><i class="fa-solid fa-users"></i> Usuários</a>
+      <button onclick="fazerLogout()" class="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
+    </div>
+  </nav>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="container">
+    <div class="card mt-4">
+      <div class="header-actions">
+        <h2><i class="fa-solid fa-list-check"></i> Registro de Auditoria & Execuções</h2>
+        <button onclick="carregarHistoricoCompleto()" class="btn-refresh">
+          <i class="fa-solid fa-rotate"></i> Atualizar
+        </button>
+      </div>
+
+      <!-- TABELA DE HISTÓRICO -->
+      <div class="table-responsive mt-3">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Data / Hora</th>
+              <th>Servidor</th>
+              <th>Ação Executada</th>
+              <th>Executado Por</th>
+              <th>Status</th>
+              <th>Detalhes / Output SSH</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-historico-completo">
+            <tr>
+              <td colspan="7" style="text-align: center; color: #8e9a9d; padding: 20px;">
+                <i class="fa-solid fa-spinner fa-spin"></i> Carregando registros...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

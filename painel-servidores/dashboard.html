@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RESTART - Gestão de Servidores</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo-icon-sm"><i class="fa-solid fa-ticket"></i></div>
+        <h2>RESTART <span>| Servidores</span></h2>
+      </div>
+      <nav class="nav-links">
+        <a href="dashboard.html" class="nav-item active"><i class="fa-solid fa-server"></i> Servidores</a>
+        <a href="monitoramento.html" class="nav-item"><i class="fa-solid fa-heart-pulse"></i> Monitoramento</a>
+        <a href="usuarios.html" id="nav-item-usuarios" class="nav-item"><i class="fa-solid fa-users"></i> Usuários</a>
+        <a href="#" id="btn-abrir-historico" onclick="abrirModalHistorico()" class="nav-item"><i class="fa-solid fa-clock-rotate-left"></i> Histórico</a>
+        <a href="#" onclick="fazerLogout()" class="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Sair</a>
+      </nav>
+    </header>
+
+    <main class="content">
+      <section class="card-dark">
+        <h3 id="form-titulo"><i class="fa-solid fa-server"></i> Cadastrar Novo Servidor / Container</h3>
+        
+        <form id="form-servidor" class="form-grid">
+          <input type="hidden" id="srv-id">
+          
+          <div class="form-group">
+            <label for="srv-nome">Nome / Identificador</label>
+            <input type="text" id="srv-nome" autocomplete="off" placeholder="Ex: App Prod 01" required>
+          </div>
+
+          <div class="form-group">
+            <label for="srv-url">Link / IP do Servidor</label>
+            <input type="text" id="srv-url" autocomplete="off" placeholder="192.168.1.100" required>
+          </div>
+
+          <div class="form-group">
+            <label for="srv-tipo">Tipo de Monitoramento</label>
+            <select id="srv-tipo" class="form-control" style="width: 100%; padding: 10px; background: #111827; color: #fff; border: 1px solid #374151; border-radius: 6px;">
+              <option value="Ping">Ping (ICMP)</option>
+              <option value="HTTP">HTTP / HTTPS</option>
+              <option value="Port">Porta TCP</option>
+              <option value="Keyword">Keyword</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="srv-user">Usuário SSH / API</label>
+            <input type="text" id="srv-user" placeholder="root" required autocomplete="username">
+          </div>
+
+          <div class="form-group">
+            <label for="srv-pass">Senha SSH / Token</label>
+            <div class="input-password-wrapper" style="position: relative; display: flex; align-items: center;">
+              <input type="password" id="srv-pass" placeholder="••••••••••••" autocomplete="current-password" style="width: 100%; padding-right: 35px;">
+              <i id="btn-eye-srv" class="fa-solid fa-eye" style="position: absolute; right: 12px; cursor: pointer; color: #9ca3af;"></i>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="srv-sudo-pass">Senha Sudo (Opcional)</label>
+            <input type="password" id="srv-sudo-pass" placeholder="Senha do sudo" autocomplete="off" style="width: 100%; padding: 10px; background: #111827; color: #fff; border: 1px solid #374151; border-radius: 6px;">
+          </div>
+
+          <!-- SELETOR COMPLETO DE POPULAR PORTS -->
+          <div class="form-group span-2">
+            <label for="srv-porta-popular">Porta / Serviço Padrão</label>
+            <select id="srv-porta-popular" class="form-control" style="width: 100%; padding: 10px; background: #111827; color: #fff; border: 1px solid #374151; border-radius: 6px; margin-bottom: 8px;">
+              <option value="">Please select</option>
+              <option value="custom">Custom Port</option>
+              <optgroup label="Popular Ports">
+                <option value="80">HTTP (80)</option>
+                <option value="443">HTTPS (443)</option>
+                <option value="21">FTP (21)</option>
+                <option value="25">SMTP (25)</option>
+                <option value="465">SMTP Secure (465)</option>
+                <option value="110">POP3 (110)</option>
+                <option value="995">POP3 Secure (995)</option>
+                <option value="143">IMAP (143)</option>
+                <option value="993">IMAP over SSL (993)</option>
+                <option value="22">SSH (22)</option>
+                <option value="389">LDAP (389)</option>
+                <option value="3306">MySQL (3306)</option>
+                <option value="115">SFTP (115)</option>
+                <option value="43">WHOIS (43)</option>
+                <option value="53">BIND (53)</option>
+                <option value="3389">RDP (3389)</option>
+              </optgroup>
+            </select>
+            <input type="text" id="srv-porta" autocomplete="off" placeholder="Digite a porta ex: 8080" style="display: none; margin-top: 5px;">
+          </div>
+
+          <div class="form-group span-2">
+            <div class="label-checkbox-wrapper">
+              <label for="srv-container">Container Docker</label>
+              <label class="custom-checkbox">
+                <input type="checkbox" id="chk-docker">
+                <span>Usar Docker?</span>
+              </label>
+            </div>
+            <input type="text" id="srv-container" autocomplete="off" placeholder="Ex: api-web-prod" disabled style="opacity: 0.5;">
+          </div>
+
+          <div class="form-group span-2">
+            <div class="label-checkbox-wrapper">
+              <label for="srv-caminho-projeto">Caminho do Projeto (Docker Compose)</label>
+              <label class="custom-checkbox">
+                <input type="checkbox" id="chk-compose">
+                <span>Usar Compose?</span>
+              </label>
+            </div>
+            <input type="text" id="srv-caminho-projeto" autocomplete="off" placeholder="Ex: /var/www/meu-projeto" disabled style="opacity: 0.5;">
+          </div>
+
+          <div class="form-group span-full" style="margin-top: 5px;">
+            <label class="custom-checkbox">
+              <input type="checkbox" id="chk-has-actions">
+              <span>Exibir ações avançadas de servidor (Desmontar, Reboot, Montar e Subir Serviços)</span>
+            </label>
+          </div>
+
+          <div class="form-actions span-full">
+            <button type="submit" id="btn-submit-srv" class="btn-submit">
+              <i class="fa-solid fa-plus"></i> <span id="btn-submit-text">Salvar Servidor</span>
+            </button>
+            <button type="button" id="btn-cancel-edit" class="btn-cancel" onclick="limparFormulario()" style="display: none;">
+              <i class="fa-solid fa-xmark"></i> Cancelar Edição
+            </button>
+          </div>
+
+        </form>
+      </section>
+    
+      <section class="card-dark">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3 style="margin: 0;"><i class="fa-solid fa-network-wired"></i> Servidores Monitorados</h3>
+          
+          <button type="button" onclick="abrirModalHistorico()" style="width: auto; height: auto; padding: 6px 12px; font-size: 12px; font-weight: 600; background-color: #10b981; color: #000; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;">
+            <i class="fa-solid fa-clock-rotate-left"></i> Histórico
+          </button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Servidor</th>
+                <th>IP / URL</th>
+                <th>Target / Compose</th>
+                <th>Usuário</th>
+                <th>Status</th>
+                <th style="text-align: center;">Ações de Controle</th>
+              </tr>
+            </thead>
+            <tbody id="lista-servidores">
+              <tr>
+                <td colspan="6" style="text-align: center; color: #8e9a9d; padding: 20px;">
+                  <i class="fa-solid fa-spinner fa-spin"></i> Carregando servidores...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+  </div>
+
+  <div id="modal-historico" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="card-dark" style="width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; position: relative;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3><i class="fa-solid fa-clock-rotate-left"></i> Histórico de Execuções</h3>
+        <button onclick="fecharModalHistorico()" class="btn-cancel" style="padding: 4px 10px;"><i class="fa-solid fa-xmark"></i> Fechar</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Data/Hora</th>
+              <th>Servidor</th>
+              <th>Ação</th>
+              <th>Status</th>
+              <th>Usuário</th>
+            </tr>
+          </thead>
+          <tbody id="lista-historico">
+            <tr>
+              <td colspan="5" style="text-align: center; color: #8e9a9d; padding: 15px;">
+                Carregando histórico...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts integrados da plataforma -->
+  <script src="app.js"></script>
+  <script src="monitoramento.js"></script>
+  <script>
+    function abrirModalHistorico() {
+      const modal = document.getElementById("modal-historico");
+      if (modal) {
+        modal.style.display = "flex";
+        if (typeof window.carregarHistorico === "function") {
+          window.carregarHistorico();
+        }
+      }
+    }
+
+    function fecharModalHistorico() {
+      const modal = document.getElementById("modal-historico");
+      if (modal) {
+        modal.style.display = "none";
+      }
+    }
+
+    // Toggle de visualização da senha do servidor no formulário de cadastro
+    document.addEventListener('DOMContentLoaded', () => {
+      const btnEyeSrv = document.getElementById('btn-eye-srv');
+      const inputSrvPass = document.getElementById('srv-pass');
+      if (btnEyeSrv && inputSrvPass) {
+        btnEyeSrv.addEventListener('click', () => {
+          const tipo = inputSrvPass.getAttribute('type') === 'password' ? 'text' : 'password';
+          inputSrvPass.setAttribute('type', tipo);
+          btnEyeSrv.classList.toggle('fa-eye');
+          btnEyeSrv.classList.toggle('fa-eye-slash');
+        });
+      }
+    });
+  </script>
+</body>
+</html>
