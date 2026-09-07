@@ -5,7 +5,15 @@ const path = require('path');
 const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const logger = require('./logger');
+const session = require('express-session');
+
+// Importação segura do logger para evitar erros de tipo
+let loggerModule = require('./logger');
+const logger = {
+  info: (msg) => (typeof loggerModule.info === 'function' ? loggerModule.info(msg) : console.log(`[INFO] ${msg}`)),
+  error: (msg) => (typeof loggerModule.error === 'function' ? loggerModule.error(msg) : console.error(`[ERROR] ${msg}`)),
+  warn: (msg) => (typeof loggerModule.warn === 'function' ? loggerModule.warn(msg) : console.warn(`[WARN] ${msg}`))
+};
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +24,19 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Configuração da Sessão no Servidor
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'restart_secret_key_security_99',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: false, // Defina como true se usar HTTPS em produção
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 1 dia de validade
+  }
+}));
 
 // Rate Limiting restrito para evitar ataques de força bruta na rota de login
 const loginLimiter = rateLimit({
@@ -33,7 +54,15 @@ if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = __dirname;
 }
 
-// Servir todos os arquivos estáticos (CSS, JS, Imagens, Webfonts)
+// Middleware para verificar se o usuário está autenticado nas rotas protegidas
+const verificarSessao = (req, res, next) => {
+  if (req.session && req.session.autenticado) {
+    return next();
+  }
+  return res.redirect('/login.html');
+};
+
+// Servir todos os arquivos estáticos (CSS, Imagens, Webfonts)
 app.use(express.static(PASTA_FRONTEND));
 
 // Garantir entrega de scripts com MIME Type correto
@@ -120,22 +149,32 @@ app.post('/api/login', loginLimiter, (req, res) => {
   }
 
   if (email === ADMIN_EMAIL && senha === ADMIN_SENHA) {
+    req.session.autenticado = true;
+    req.session.usuario = {
+      id: 1,
+      nome: 'Administrador',
+      email: ADMIN_EMAIL,
+      perfil: 'Admin',
+      status: 'Ativo'
+    };
+
     logger.info(`Login bem-sucedido para o administrador: ${ADMIN_EMAIL}`);
     return res.json({
       success: true,
       message: 'Login realizado com sucesso!',
-      usuario: {
-        id: 1,
-        nome: 'Administrador',
-        email: ADMIN_EMAIL,
-        perfil: 'Admin',
-        status: 'Ativo'
-      }
+      usuario: req.session.usuario
     });
   }
 
   logger.warn(`Tentativa de login falha para o e-mail: ${email}`);
   return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
+});
+
+// Rota de Logout (destrói a sessão)
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(err => {
+    res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
+  });
 });
 
 // LISTAR SERVIDORES
@@ -298,21 +337,27 @@ app.post('/api/historico', (req, res) => {
   });
 });
 
-// 5. Rotas principais do Frontend
-app.get(['/', '/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/login.html'], (req, res) => {
-  let paginaDesejada = req.path === '/' ? 'dashboard.html' : req.path.substring(1);
-  if (req.path === '/') paginaDesejada = 'dashboard.html';
-  const htmlPath = path.join(PASTA_FRONTEND, paginaDesejada);
+// 5. Rotas principais do Frontend com Proteção de Sessão
+app.get('/', (req, res) => {
+  if (req.session && req.session.autenticado) {
+    return res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
+  }
+  res.sendFile(path.join(PASTA_FRONTEND, 'login.html'));
+});
+
+app.get('/login.html', (req, res) => {
+  res.sendFile(path.join(PASTA_FRONTEND, 'login.html'));
+});
+
+app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html'], verificarSessao, (req, res) => {
+  let paginaDesejada = req.path.substring(1);
+  if (!paginaDesejada.includes('.html')) paginaDesejada += '.html';
   
+  const htmlPath = path.join(PASTA_FRONTEND, paginaDesejada);
   if (fs.existsSync(htmlPath)) {
     res.sendFile(htmlPath);
   } else {
-    const fallbackPath = path.join(PASTA_FRONTEND, 'dashboard.html');
-    if (fs.existsSync(fallbackPath)) {
-      res.sendFile(fallbackPath);
-    } else {
-      res.status(404).send('Página não encontrada.');
-    }
+    res.status(404).sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
   }
 });
 
