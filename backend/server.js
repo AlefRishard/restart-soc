@@ -18,6 +18,9 @@ const logger = {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Essencial para o Render (HTTPS / Proxy reverso)
+app.set('trust proxy', 1);
+
 // 1. Configurações de Segurança e Middlewares Globais
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -26,14 +29,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configuração da Sessão no Servidor
+// Configuração da Sessão adaptada para HTTPS no Render
 app.use(session({
   secret: process.env.SESSION_SECRET || 'restart_secret_key_security_99',
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: false, // Defina como true se usar HTTPS em produção
+    secure: true, // Obrigatório true no Render já que usamos HTTPS
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 1 dia de validade
   }
 }));
@@ -61,6 +65,17 @@ const verificarSessao = (req, res, next) => {
   }
   return res.redirect('/login.html');
 };
+
+// BLOQUEIO DE SEGURANÇA: Deve vir ANTES do express.static para barrar arquivos estáticos protegidos
+app.use((req, res, next) => {
+  // Se for requisição para arquivos html (exceto a tela de login)
+  if (req.path.endsWith('.html') && req.path !== '/login.html') {
+    if (!req.session || !req.session.autenticado) {
+      return res.redirect('/login.html');
+    }
+  }
+  next();
+});
 
 // Servir todos os arquivos estáticos (CSS, Imagens, Webfonts)
 app.use(express.static(PASTA_FRONTEND));
@@ -139,10 +154,11 @@ criarTabelas();
 
 // ROTA DE LOGIN FIXA (ADMINISTRADOR) COM RATE LIMIT
 app.post('/api/login', loginLimiter, (req, res) => {
-  const { email, senha } = req.body;
+  const email = (req.body.email || '').trim();
+  const senha = (req.body.senha || '').trim();
 
-  const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com';
-  const ADMIN_SENHA = process.env.ADMIN_SENHA; 
+  const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com').trim();
+  const ADMIN_SENHA = (process.env.ADMIN_SENHA || '').trim(); 
 
   if (!email || !senha) {
     return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
