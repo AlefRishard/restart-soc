@@ -49,16 +49,18 @@ const loginLimiter = rateLimit({
   message: { success: false, message: 'Muitas tentativas de login a partir deste IP. Tente novamente mais tarde.' }
 });
 
-// 2. Resolução Dinâmica do Caminho do Frontend
+// 2. Resolução Robusta do Caminho do Frontend (Ajustada para a estrutura restart-soc)
 let PASTA_FRONTEND = path.resolve(__dirname, '../painel-servidores');
 if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = path.resolve(__dirname, 'painel-servidores');
 }
 if (!fs.existsSync(PASTA_FRONTEND)) {
-  PASTA_FRONTEND = __dirname;
+  PASTA_FRONTEND = path.resolve(__dirname, './painel-servidores');
 }
 
-// 3. ROTA DE LOGIN (Deve vir antes do bloqueio)
+logger.info(`Caminho do Frontend configurado em: ${PASTA_FRONTEND}`);
+
+// 3. ROTA DE LOGIN
 app.post('/api/login', loginLimiter, (req, res) => {
   const email = (req.body.email || '').trim();
   const senha = (req.body.senha || '').trim();
@@ -99,7 +101,7 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// Rota para o Auth-Guard do Frontend verificar a sessão ativamente
+// Rota para o Auth-Guard verificar a sessão
 app.get('/api/check-session', (req, res) => {
   if (req.session && req.session.autenticado) {
     return res.json({ success: true, autenticado: true });
@@ -115,38 +117,54 @@ const verificarSessaoApi = (req, res, next) => {
   return res.status(401).json({ success: false, message: 'Não autorizado. Faça login novamente.' });
 };
 
-// 4. SERVIÇO DE ASSETS PÚBLICOS E ESTÁTICOS (Apenas CSS, JS, Imagens, etc - SEM HTML)
-app.use('/css', express.static(path.join(PASTA_FRONTEND, 'css')));
-app.use('/js', express.static(path.join(PASTA_FRONTEND, 'js')));
-app.use('/img', express.static(path.join(PASTA_FRONTEND, 'img')));
-app.use(express.static(PASTA_FRONTEND, {
-  index: false,
-  extensions: ['css', 'js', 'png', 'jpg', 'ico', 'svg'],
-  // Função que impede explicitamente o express.static de entregar arquivos HTML
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('X-Blocked', 'true');
+// 4. BARREIRA DE SEGURANÇA GLOBAL PARA PÁGINAS E APIS (Bloqueia acesso direto sem sessão)
+app.use((req, res, next) => {
+  const caminho = req.path.toLowerCase();
+
+  // Recursos públicos que podem ser acessados sem login
+  if (
+    caminho === '/login.html' || 
+    caminho === '/index.html' ||
+    caminho === '/' ||
+    caminho === '/api/login' || 
+    caminho === '/api/check-session' ||
+    caminho === '/auth-guard.js' ||
+    caminho.endsWith('.css') || 
+    caminho.endsWith('.js') || 
+    caminho.endsWith('.png') || 
+    caminho.endsWith('.jpg') || 
+    caminho.endsWith('.ico') ||
+    caminho.endsWith('.svg')
+  ) {
+    return next();
+  }
+
+  // Se for requisição de API protegida sem sessão
+  if (caminho.startsWith('/api/')) {
+    if (!req.session || !req.session.autenticado) {
+      return res.status(401).json({ success: false, message: 'Não autorizado.' });
+    }
+    return next();
+  }
+
+  // BLINDAGEM DE PÁGINAS HTML: Se tentar abrir dashboard, usuarios, monitoramento ou historico sem sessão, bloqueia!
+  if (
+    caminho.includes('dashboard') || 
+    caminho.includes('usuarios') || 
+    caminho.includes('monitoramento') || 
+    caminho.includes('historico') ||
+    caminho.endsWith('.html')
+  ) {
+    if (!req.session || !req.session.autenticado) {
+      return res.redirect('/index.html');
     }
   }
-}));
 
-// Permitir explicitamente apenas os arquivos públicos de entrada e o auth-guard
-app.get(['/index.html', '/login.html', '/auth-guard.js', '/style.css'], (req, res, next) => {
-  const file = req.path === '/' ? 'index.html' : req.path;
-  const targetPath = path.join(PASTA_FRONTEND, file);
-  if (fs.existsSync(targetPath)) {
-    return res.sendFile(targetPath);
-  }
   next();
 });
 
-// 5. ROTAS DE PÁGINAS PROTEGIDAS RIGOROSAMENTE PELO SERVIDOR
-const verificarSessaoPage = (req, res, next) => {
-  if (req.session && req.session.autenticado) {
-    return next();
-  }
-  return res.redirect('/index.html');
-};
+// 5. Servir arquivos estáticos da pasta frontend de forma controlada
+app.use(express.static(PASTA_FRONTEND));
 
 // Rota raiz inteligente
 app.get('/', (req, res) => {
@@ -154,29 +172,6 @@ app.get('/', (req, res) => {
     return res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
   }
   res.sendFile(path.join(PASTA_FRONTEND, 'index.html'));
-});
-
-// Bloqueio rigoroso de páginas internas protegidas
-app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/historico.html'], verificarSessaoPage, (req, res) => {
-  let paginaDesejada = req.path.substring(1);
-  if (!paginaDesejada.includes('.html')) paginaDesejada += '.html';
-  
-  const htmlPath = path.join(PASTA_FRONTEND, paginaDesejada);
-  if (fs.existsSync(htmlPath)) {
-    res.sendFile(htmlPath);
-  } else {
-    res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
-  }
-});
-
-// Middleware Global de Segurança para qualquer outra rota /api/ não mapeada
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    if (!req.session || !req.session.autenticado) {
-      return res.status(401).json({ success: false, message: 'Não autorizado.' });
-    }
-  }
-  next();
 });
 
 // 6. CONEXÃO COM O BANCO DE DADOS MYSQL
