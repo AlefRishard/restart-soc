@@ -33,12 +33,13 @@ app.get(['/app.js', '/script.js', '/monitoramento.js'], (req, res) => {
   res.status(404).send('Arquivo JS não encontrado.');
 });
 
-// 2. Conexão com o Banco de Dados MySQL
+// 2. Conexão com o Banco de Dados MySQL (com suporte a porta personalizada)
 const db = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'A.r180798160999',
   database: process.env.DB_NAME || 'restart_db',
+  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
