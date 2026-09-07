@@ -99,6 +99,14 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
+// Nova rota para o Auth-Guard do Frontend verificar a sessão ativamente
+app.get('/api/check-session', (req, res) => {
+  if (req.session && req.session.autenticado) {
+    return res.json({ success: true, autenticado: true });
+  }
+  return res.json({ success: false, autenticado: false });
+});
+
 // Middleware para verificar se o usuário está autenticado nas APIs protegidas
 const verificarSessaoApi = (req, res, next) => {
   if (req.session && req.session.autenticado) {
@@ -117,6 +125,7 @@ app.use((req, res, next) => {
     caminho === '/index.html' ||
     caminho === '/' ||
     caminho === '/api/login' || 
+    caminho === '/api/check-session' ||
     caminho.endsWith('.css') || 
     caminho.endsWith('.js') || 
     caminho.endsWith('.png') || 
