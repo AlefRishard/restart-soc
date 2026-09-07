@@ -58,7 +58,7 @@ if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = __dirname;
 }
 
-// 3. ROTA DE LOGIN (Deve vir antes do bloqueio estático de páginas)
+// 3. ROTA DE LOGIN (Deve vir antes do bloqueio)
 app.post('/api/login', loginLimiter, (req, res) => {
   const email = (req.body.email || '').trim();
   const senha = (req.body.senha || '').trim();
@@ -99,7 +99,7 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// Nova rota para o Auth-Guard do Frontend verificar a sessão ativamente
+// Rota para o Auth-Guard do Frontend verificar a sessão ativamente
 app.get('/api/check-session', (req, res) => {
   if (req.session && req.session.autenticado) {
     return res.json({ success: true, autenticado: true });
@@ -115,56 +115,71 @@ const verificarSessaoApi = (req, res, next) => {
   return res.status(401).json({ success: false, message: 'Não autorizado. Faça login novamente.' });
 };
 
-// 1. BLOQUEIO TOTAL E ENTREGA SEGURA DE PÁGINAS PROTEGIDAS
-app.use((req, res, next) => {
-  const caminho = req.path.toLowerCase();
-
-  // Recursos públicos, APIs livres e arquivos estáticos públicos permitidos sem login
-  if (
-    caminho === '/login.html' || 
-    caminho === '/index.html' ||
-    caminho === '/' ||
-    caminho === '/api/login' || 
-    caminho === '/api/check-session' ||
-    caminho === '/auth-guard.js' ||
-    caminho.endsWith('.css') || 
-    caminho.endsWith('.js') || 
-    caminho.endsWith('.png') || 
-    caminho.endsWith('.jpg') || 
-    caminho.endsWith('.ico') ||
-    caminho.startsWith('/css') || 
-    caminho.startsWith('/js') || 
-    caminho.startsWith('/img')
-  ) {
-    return next();
-  }
-
-  // Se for qualquer chamada de API protegida sem sessão
-  if (caminho.startsWith('/api/')) {
-    if (!req.session || !req.session.autenticado) {
-      return res.status(401).json({ success: false, message: 'Não autorizado.' });
-    }
-    return next();
-  }
-
-  // BLINDAGEM: Se qualquer arquivo .html for requisitado diretamente sem estar autenticado, barra na hora!
-  if (caminho.endsWith('.html') || !req.session || !req.session.autenticado) {
-    if (!req.session || !req.session.autenticado) {
-      // Se for requisição de página/HTML, redireciona para o index
-      if (caminho.endsWith('.html') || req.headers.accept?.includes('text/html')) {
-        return res.redirect('/index.html');
-      }
-      return res.status(401).json({ success: false, message: 'Não autorizado.' });
+// 4. SERVIÇO DE ASSETS PÚBLICOS E ESTÁTICOS (Apenas CSS, JS, Imagens, etc - SEM HTML)
+app.use('/css', express.static(path.join(PASTA_FRONTEND, 'css')));
+app.use('/js', express.static(path.join(PASTA_FRONTEND, 'js')));
+app.use('/img', express.static(path.join(PASTA_FRONTEND, 'img')));
+app.use(express.static(PASTA_FRONTEND, {
+  index: false,
+  extensions: ['css', 'js', 'png', 'jpg', 'ico', 'svg'],
+  // Função que impede explicitamente o express.static de entregar arquivos HTML
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('X-Blocked', 'true');
     }
   }
+}));
 
+// Permitir explicitamente apenas os arquivos públicos de entrada e o auth-guard
+app.get(['/index.html', '/login.html', '/auth-guard.js', '/style.css'], (req, res, next) => {
+  const file = req.path === '/' ? 'index.html' : req.path;
+  const targetPath = path.join(PASTA_FRONTEND, file);
+  if (fs.existsSync(targetPath)) {
+    return res.sendFile(targetPath);
+  }
   next();
 });
 
-// 2. Servir os arquivos da pasta frontend de forma segura após a barreira
-app.use(express.static(PASTA_FRONTEND));
+// 5. ROTAS DE PÁGINAS PROTEGIDAS RIGOROSAMENTE PELO SERVIDOR
+const verificarSessaoPage = (req, res, next) => {
+  if (req.session && req.session.autenticado) {
+    return next();
+  }
+  return res.redirect('/index.html');
+};
 
-// 5. CONEXÃO COM O BANCO DE DADOS MYSQL
+// Rota raiz inteligente
+app.get('/', (req, res) => {
+  if (req.session && req.session.autenticado) {
+    return res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
+  }
+  res.sendFile(path.join(PASTA_FRONTEND, 'index.html'));
+});
+
+// Bloqueio rigoroso de páginas internas protegidas
+app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/historico.html'], verificarSessaoPage, (req, res) => {
+  let paginaDesejada = req.path.substring(1);
+  if (!paginaDesejada.includes('.html')) paginaDesejada += '.html';
+  
+  const htmlPath = path.join(PASTA_FRONTEND, paginaDesejada);
+  if (fs.existsSync(htmlPath)) {
+    res.sendFile(htmlPath);
+  } else {
+    res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
+  }
+});
+
+// Middleware Global de Segurança para qualquer outra rota /api/ não mapeada
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    if (!req.session || !req.session.autenticado) {
+      return res.status(401).json({ success: false, message: 'Não autorizado.' });
+    }
+  }
+  next();
+});
+
+// 6. CONEXÃO COM O BANCO DE DADOS MYSQL
 const db = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   user: process.env.DB_USER || 'root',
@@ -223,7 +238,7 @@ const criarTabelas = () => {
 
 criarTabelas();
 
-// 6. ROTAS DE API PROTEGIDAS
+// 7. ROTAS DE API PROTEGIDAS
 app.get('/api/servidores', verificarSessaoApi, (req, res) => {
   db.query('SELECT * FROM servidores ORDER BY id DESC', (err, rows) => {
     if (err) {
@@ -328,33 +343,6 @@ app.get('/api/historico', verificarSessaoApi, (req, res) => {
     }
     res.json(rows || []);
   });
-});
-
-// 7. ROTAS DE FRONTEND COM PROTEÇÃO DE SESSÃO
-const verificarSessaoPage = (req, res, next) => {
-  if (req.session && req.session.autenticado) {
-    return next();
-  }
-  return res.redirect('/index.html');
-};
-
-app.get('/', (req, res) => {
-  if (req.session && req.session.autenticado) {
-    return res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
-  }
-  res.sendFile(path.join(PASTA_FRONTEND, 'index.html'));
-});
-
-app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/historico.html'], verificarSessaoPage, (req, res) => {
-  let paginaDesejada = req.path.substring(1);
-  if (!paginaDesejada.includes('.html')) paginaDesejada += '.html';
-  
-  const htmlPath = path.join(PASTA_FRONTEND, paginaDesejada);
-  if (fs.existsSync(htmlPath)) {
-    res.sendFile(htmlPath);
-  } else {
-    res.status(404).sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
-  }
 });
 
 // Middleware Global de Tratamento de Erros
