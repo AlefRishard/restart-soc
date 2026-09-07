@@ -3,14 +3,28 @@ const cors = require('cors');
 const mysql = require('mysql2');
 const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const logger = require('./logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 1. Configurações de Segurança e Middlewares Globais
+app.use(helmet({
+  contentSecurityPolicy: false,
+}));
 app.use(cors());
 app.use(express.json());
 
-// 1. Resolução Dinâmica do Caminho do Frontend (evita 404 de CSS/JS/Fontes)
+// Rate Limiting restrito para evitar ataques de força bruta na rota de login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // Limite de 10 tentativas por IP
+  message: { success: false, message: 'Muitas tentativas de login a partir deste IP. Tente novamente mais tarde.' }
+});
+
+// 2. Resolução Dinâmica do Caminho do Frontend (evita 404 de CSS/JS/Fontes)
 let PASTA_FRONTEND = path.resolve(__dirname, '../painel-servidores');
 if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = path.resolve(__dirname, 'painel-servidores');
@@ -33,7 +47,7 @@ app.get(['/app.js', '/script.js', '/monitoramento.js'], (req, res) => {
   res.status(404).send('Arquivo JS não encontrado.');
 });
 
-// 2. Conexão com o Banco de Dados MySQL (com suporte a porta personalizada)
+// 3. Conexão com o Banco de Dados MySQL (com suporte a porta personalizada)
 const db = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   user: process.env.DB_USER || 'root',
@@ -47,9 +61,9 @@ const db = mysql.createPool({
 
 db.getConnection((err, connection) => {
   if (err) {
-    console.error('Erro ao conectar no MySQL:', err.message);
+    logger.error(`Erro ao conectar no MySQL: ${err.message}`);
   } else {
-    console.log('Banco de dados MySQL conectado com sucesso!');
+    logger.info('Banco de dados MySQL conectado com sucesso!');
     connection.release();
   }
 });
@@ -85,20 +99,19 @@ const criarTabelas = () => {
 
   queries.forEach(query => {
     db.query(query, (err) => {
-      if (err) console.error('Erro ao criar tabela:', err.message);
+      if (err) logger.error(`Erro ao criar tabela: ${err.message}`);
     });
   });
 };
 
 criarTabelas();
 
-// 3. ROTAS DE API DA APLICAÇÃO
+// 4. ROTAS DE API DA APLICAÇÃO
 
-// ROTA DE LOGIN FIXA (ADMINISTRADOR)
-app.post('/api/login', (req, res) => {
+// ROTA DE LOGIN FIXA (ADMINISTRADOR) COM RATE LIMIT
+app.post('/api/login', loginLimiter, (req, res) => {
   const { email, senha } = req.body;
 
-  // Sem strings sensíveis fixas no código para evitar bloqueio do scanner do GitHub
   const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com';
   const ADMIN_SENHA = process.env.ADMIN_SENHA; 
 
@@ -107,6 +120,7 @@ app.post('/api/login', (req, res) => {
   }
 
   if (email === ADMIN_EMAIL && senha === ADMIN_SENHA) {
+    logger.info(`Login bem-sucedido para o administrador: ${ADMIN_EMAIL}`);
     return res.json({
       success: true,
       message: 'Login realizado com sucesso!',
@@ -120,6 +134,7 @@ app.post('/api/login', (req, res) => {
     });
   }
 
+  logger.warn(`Tentativa de login falha para o e-mail: ${email}`);
   return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
 });
 
@@ -127,7 +142,7 @@ app.post('/api/login', (req, res) => {
 app.get('/api/servidores', (req, res) => {
   db.query('SELECT * FROM servidores ORDER BY id DESC', (err, rows) => {
     if (err) {
-      console.error('Erro no GET /api/servidores:', err.message);
+      logger.error(`Erro no GET /api/servidores: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
     res.json(rows || []);
@@ -163,9 +178,10 @@ app.post('/api/servidores', (req, res) => {
 
   db.query(query, params, function (err, result) {
     if (err) {
-      console.error('Erro no POST /api/servidores:', err.message);
+      logger.error(`Erro no POST /api/servidores: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
+    logger.info(`Servidor cadastrado com sucesso: ${nome}`);
     res.json({ success: true, id: result.insertId });
   });
 });
@@ -198,9 +214,10 @@ app.put('/api/servidores/:id', (req, res) => {
 
   db.query(query, params, function (err, result) {
     if (err) {
-      console.error('Erro no PUT /api/servidores:', err.message);
+      logger.error(`Erro no PUT /api/servidores/${id}: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
+    logger.info(`Servidor ID ${id} atualizado com sucesso.`);
     res.json({ success: true, changes: result.affectedRows });
   });
 });
@@ -231,9 +248,10 @@ app.post('/api/servidores/:id/:acao', (req, res) => {
     `;
 
     db.query(logQuery, [servidor.nome, nomeAcaoLog, servidor.usuario || 'Sistema', 'SUCESSO', `Comando ${acao} executado com sucesso.`], (errHist) => {
-      if (errHist) console.error('Erro ao gravar histórico:', errHist.message);
+      if (errHist) logger.error(`Erro ao gravar histórico: ${errHist.message}`);
     });
 
+    logger.info(`Ação '${acao}' executada no servidor ${servidor.nome}`);
     res.json({ success: true, message: `Ação ${acao} executada com sucesso em ${servidor.nome}` });
   });
 });
@@ -243,9 +261,10 @@ app.delete('/api/servidores/:id', (req, res) => {
   const { id } = req.params;
   db.query('DELETE FROM servidores WHERE id = ?', [id], function (err, result) {
     if (err) {
-      console.error('Erro no DELETE /api/servidores:', err.message);
+      logger.error(`Erro no DELETE /api/servidores/${id}: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
+    logger.info(`Servidor ID ${id} removido com sucesso.`);
     res.json({ success: true, changes: result.affectedRows });
   });
 });
@@ -254,7 +273,7 @@ app.delete('/api/servidores/:id', (req, res) => {
 app.get('/api/historico', (req, res) => {
   db.query('SELECT * FROM historico ORDER BY id DESC LIMIT 100', (err, rows) => {
     if (err) {
-      console.error('Erro no GET /api/historico:', err.message);
+      logger.error(`Erro no GET /api/historico: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
     res.json(rows || []);
@@ -272,14 +291,14 @@ app.post('/api/historico', (req, res) => {
 
   db.query(query, [servidor_nome, acao, usuario_execucao, status, detalhes || ''], function (err, result) {
     if (err) {
-      console.error('Erro no POST /api/historico:', err.message);
+      logger.error(`Erro no POST /api/historico: ${err.message}`);
       return res.status(500).json({ success: false, error: err.message });
     }
     res.json({ success: true, id: result.insertId });
   });
 });
 
-// 4. Rotas principais do Frontend
+// 5. Rotas principais do Frontend
 app.get(['/', '/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/login.html'], (req, res) => {
   let paginaDesejada = req.path === '/' ? 'dashboard.html' : req.path.substring(1);
   if (req.path === '/') paginaDesejada = 'dashboard.html';
@@ -297,8 +316,14 @@ app.get(['/', '/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento
   }
 });
 
+// 6. Middleware Global de Tratamento de Erros (Evita vazamento de stack traces)
+app.use((err, req, res, next) => {
+  logger.error(`Erro interno não tratado: ${err.message} - Stack: ${err.stack}`);
+  res.status(500).json({ success: false, error: 'Ocorreu um erro interno no servidor. Tente novamente mais tarde.' });
+});
+
 // Inicialização do Servidor HTTP
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor rodando em: http://localhost:${PORT}`);
-  console.log(`Servindo arquivos do frontend de: ${PASTA_FRONTEND}`);
+  logger.info(`Servidor rodando em: http://localhost:${PORT}`);
+  logger.info(`Servindo arquivos do frontend de: ${PASTA_FRONTEND}`);
 });
