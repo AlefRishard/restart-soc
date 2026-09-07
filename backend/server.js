@@ -35,21 +35,21 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: true, // Obrigatório true no Render já que usamos HTTPS
+    secure: true, 
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 1 dia de validade
   }
 }));
 
-// Rate Limiting restrito para evitar ataques de força bruta na rota de login
+// Rate Limiting para a rota de login
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // Limite de 10 tentativas por IP
+  windowMs: 15 * 60 * 1000,
+  max: 20,
   message: { success: false, message: 'Muitas tentativas de login a partir deste IP. Tente novamente mais tarde.' }
 });
 
-// 2. Resolução Dinâmica do Caminho do Frontend (evita 404 de CSS/JS/Fontes)
+// 2. Resolução Dinâmica do Caminho do Frontend
 let PASTA_FRONTEND = path.resolve(__dirname, '../painel-servidores');
 if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = path.resolve(__dirname, 'painel-servidores');
@@ -58,44 +58,96 @@ if (!fs.existsSync(PASTA_FRONTEND)) {
   PASTA_FRONTEND = __dirname;
 }
 
-// Middleware para verificar se o usuário está autenticado nas rotas protegidas
-const verificarSessao = (req, res, next) => {
+// 3. ROTA DE LOGIN (Deve vir antes do bloqueio estático de páginas)
+app.post('/api/login', loginLimiter, (req, res) => {
+  const email = (req.body.email || '').trim();
+  const senha = (req.body.senha || '').trim();
+
+  const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com').trim();
+  const ADMIN_SENHA = (process.env.ADMIN_SENHA || '').trim(); 
+
+  if (!email || !senha) {
+    return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
+  }
+
+  if (email === ADMIN_EMAIL && senha === ADMIN_SENHA) {
+    req.session.autenticado = true;
+    req.session.usuario = {
+      id: 1,
+      nome: 'Administrador',
+      email: ADMIN_EMAIL,
+      perfil: 'Admin',
+      status: 'Ativo'
+    };
+
+    logger.info(`Login bem-sucedido para o administrador: ${ADMIN_EMAIL}`);
+    return res.json({
+      success: true,
+      message: 'Login realizado com sucesso!',
+      usuario: req.session.usuario
+    });
+  }
+
+  logger.warn(`Tentativa de login falha para o e-mail: ${email}`);
+  return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
+});
+
+// Rota de Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
+  });
+});
+
+// Middleware para verificar se o usuário está autenticado nas APIs protegidas
+const verificarSessaoApi = (req, res, next) => {
   if (req.session && req.session.autenticado) {
     return next();
   }
-  return res.redirect('/login.html');
+  return res.status(401).json({ success: false, message: 'Não autorizado. Faça login novamente.' });
 };
 
-// BLOQUEIO DE SEGURANÇA: Deve vir ANTES do express.static para barrar arquivos estáticos protegidos
+// 4. BLOQUEIO DE SEGURANÇA PARA PÁGINAS HTML E ARQUIVOS ESTÁTICOS PROTEGIDOS
 app.use((req, res, next) => {
-  // Se for requisição para arquivos html (exceto a tela de login)
-  if (req.path.endsWith('.html') && req.path !== '/login.html') {
-    if (!req.session || !req.session.autenticado) {
-      return res.redirect('/login.html');
-    }
+  const caminho = req.path.toLowerCase();
+
+  // Liberar rotas públicas, login, assets e arquivos estáticos essenciais
+  if (
+    caminho === '/login.html' || 
+    caminho === '/index.html' ||
+    caminho === '/' ||
+    caminho === '/api/login' || 
+    caminho.endsWith('.css') || 
+    caminho.endsWith('.js') || 
+    caminho.endsWith('.png') || 
+    caminho.endsWith('.jpg') || 
+    caminho.endsWith('.ico') ||
+    caminho.startsWith('/css') || 
+    caminho.startsWith('/js') || 
+    caminho.startsWith('/img')
+  ) {
+    return next();
   }
+
+  // Se não estiver autenticado e tentar acessar qualquer HTML interno ou API protegida
+  if (!req.session || !req.session.autenticado) {
+    if (caminho.startsWith('/api/')) {
+      return res.status(401).json({ success: false, message: 'Não autorizado.' });
+    }
+    return res.redirect('/login.html');
+  }
+
   next();
 });
 
-// Servir todos os arquivos estáticos (CSS, Imagens, Webfonts)
+// Servir arquivos estáticos do frontend
 app.use(express.static(PASTA_FRONTEND));
 
-// Garantir entrega de scripts com MIME Type correto
-app.get(['/app.js', '/script.js', '/monitoramento.js'], (req, res) => {
-  const nomeArquivo = path.basename(req.path);
-  const caminhoScript = path.join(PASTA_FRONTEND, nomeArquivo);
-  if (fs.existsSync(caminhoScript)) {
-    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    return res.sendFile(caminhoScript);
-  }
-  res.status(404).send('Arquivo JS não encontrado.');
-});
-
-// 3. Conexão com o Banco de Dados MySQL (com suporte a porta personalizada)
+// 5. CONEXÃO COM O BANCO DE DADOS MYSQL
 const db = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'A.r180798160999',
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'restart_db',
   port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
   waitForConnections: true,
@@ -112,7 +164,7 @@ db.getConnection((err, connection) => {
   }
 });
 
-// Inicialização e criação das Tabelas no MySQL (Servidores e Histórico)
+// Criar tabelas se não existirem
 const criarTabelas = () => {
   const queries = [
     `CREATE TABLE IF NOT EXISTS servidores (
@@ -150,51 +202,8 @@ const criarTabelas = () => {
 
 criarTabelas();
 
-// 4. ROTAS DE API DA APLICAÇÃO
-
-// ROTA DE LOGIN FIXA (ADMINISTRADOR) COM RATE LIMIT
-app.post('/api/login', loginLimiter, (req, res) => {
-  const email = (req.body.email || '').trim();
-  const senha = (req.body.senha || '').trim();
-
-  const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com').trim();
-  const ADMIN_SENHA = (process.env.ADMIN_SENHA || '').trim(); 
-
-  if (!email || !senha) {
-    return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
-  }
-
-  if (email === ADMIN_EMAIL && senha === ADMIN_SENHA) {
-    req.session.autenticado = true;
-    req.session.usuario = {
-      id: 1,
-      nome: 'Administrador',
-      email: ADMIN_EMAIL,
-      perfil: 'Admin',
-      status: 'Ativo'
-    };
-
-    logger.info(`Login bem-sucedido para o administrador: ${ADMIN_EMAIL}`);
-    return res.json({
-      success: true,
-      message: 'Login realizado com sucesso!',
-      usuario: req.session.usuario
-    });
-  }
-
-  logger.warn(`Tentativa de login falha para o e-mail: ${email}`);
-  return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
-});
-
-// Rota de Logout (destrói a sessão)
-app.post('/api/logout', (req, res) => {
-  req.session.destroy(err => {
-    res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
-  });
-});
-
-// LISTAR SERVIDORES
-app.get('/api/servidores', (req, res) => {
+// 6. ROTAS DE API PROTEGIDAS
+app.get('/api/servidores', verificarSessaoApi, (req, res) => {
   db.query('SELECT * FROM servidores ORDER BY id DESC', (err, rows) => {
     if (err) {
       logger.error(`Erro no GET /api/servidores: ${err.message}`);
@@ -204,8 +213,7 @@ app.get('/api/servidores', (req, res) => {
   });
 });
 
-// CADASTRAR NOVO SERVIDOR
-app.post('/api/servidores', (req, res) => {
+app.post('/api/servidores', verificarSessaoApi, (req, res) => {
   const { nome, url, tipo, usuario, senha, senha_sudo, container, porta, caminho_projeto, tem_acoes, tem_reboot } = req.body;
 
   if (!nome || !url || !usuario) {
@@ -218,17 +226,9 @@ app.post('/api/servidores', (req, res) => {
   `;
 
   const params = [
-    nome,
-    url,
-    tipo || 'Ping',
-    usuario,
-    senha || '',
-    senha_sudo || '',
-    container || '',
-    porta || '',
-    caminho_projeto || '',
-    tem_acoes ? 1 : 0,
-    tem_reboot !== undefined ? (tem_reboot ? 1 : 0) : 1
+    nome, url, tipo || 'Ping', usuario, senha || '', senha_sudo || '',
+    container || '', porta || '', caminho_projeto || '',
+    tem_acoes ? 1 : 0, tem_reboot !== undefined ? (tem_reboot ? 1 : 0) : 1
   ];
 
   db.query(query, params, function (err, result) {
@@ -241,8 +241,7 @@ app.post('/api/servidores', (req, res) => {
   });
 });
 
-// ATUALIZAR SERVIDOR EXISTENTE
-app.put('/api/servidores/:id', (req, res) => {
+app.put('/api/servidores/:id', verificarSessaoApi, (req, res) => {
   const { id } = req.params;
   const { nome, url, tipo, usuario, senha, senha_sudo, container, porta, caminho_projeto, tem_acoes, tem_reboot } = req.body;
 
@@ -253,18 +252,9 @@ app.put('/api/servidores/:id', (req, res) => {
   `;
 
   const params = [
-    nome,
-    url,
-    tipo || 'Ping',
-    usuario,
-    senha || '',
-    senha_sudo || '',
-    container || '',
-    porta || '',
-    caminho_projeto || '',
-    tem_acoes ? 1 : 0,
-    tem_reboot !== undefined ? (tem_reboot ? 1 : 0) : 1,
-    id
+    nome, url, tipo || 'Ping', usuario, senha || '', senha_sudo || '',
+    container || '', porta || '', caminho_projeto || '',
+    tem_acoes ? 1 : 0, tem_reboot !== undefined ? (tem_reboot ? 1 : 0) : 1, id
   ];
 
   db.query(query, params, function (err, result) {
@@ -277,8 +267,7 @@ app.put('/api/servidores/:id', (req, res) => {
   });
 });
 
-// AÇÕES DE CONTROLE DE SERVIDORES (RESTART, REBOOT, MOUNT, UNMOUNT)
-app.post('/api/servidores/:id/:acao', (req, res) => {
+app.post('/api/servidores/:id/:acao', verificarSessaoApi, (req, res) => {
   const { id, acao } = req.params;
 
   db.query('SELECT * FROM servidores WHERE id = ?', [id], (err, rows) => {
@@ -287,32 +276,18 @@ app.post('/api/servidores/:id/:acao', (req, res) => {
     }
 
     const servidor = rows[0];
-
-    const acoesValidas = {
-      'restart': 'RESTART_CONTAINER',
-      'reboot': 'REBOOT_SERVIDOR',
-      'unmount': 'DESMONTAR_SERVICOS',
-      'mount': 'MONTAR_SERVICOS'
-    };
-
+    const acoesValidas = { 'restart': 'RESTART_CONTAINER', 'reboot': 'REBOOT_SERVIDOR', 'unmount': 'DESMONTAR_SERVICOS', 'mount': 'MONTAR_SERVICOS' };
     const nomeAcaoLog = acoesValidas[acao] || acao.toUpperCase();
 
-    const logQuery = `
-      INSERT INTO historico (servidor_nome, acao, usuario_execucao, status, detalhes)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-
-    db.query(logQuery, [servidor.nome, nomeAcaoLog, servidor.usuario || 'Sistema', 'SUCESSO', `Comando ${acao} executado com sucesso.`], (errHist) => {
-      if (errHist) logger.error(`Erro ao gravar histórico: ${errHist.message}`);
-    });
+    const logQuery = `INSERT INTO historico (servidor_nome, acao, usuario_execucao, status, detalhes) VALUES (?, ?, ?, ?, ?)`;
+    db.query(logQuery, [servidor.nome, nomeAcaoLog, servidor.usuario || 'Sistema', 'SUCESSO', `Comando ${acao} executado com sucesso.`]);
 
     logger.info(`Ação '${acao}' executada no servidor ${servidor.nome}`);
     res.json({ success: true, message: `Ação ${acao} executada com sucesso em ${servidor.nome}` });
   });
 });
 
-// DELETAR SERVIDOR
-app.delete('/api/servidores/:id', (req, res) => {
+app.delete('/api/servidores/:id', verificarSessaoApi, (req, res) => {
   const { id } = req.params;
   db.query('DELETE FROM servidores WHERE id = ?', [id], function (err, result) {
     if (err) {
@@ -324,8 +299,7 @@ app.delete('/api/servidores/:id', (req, res) => {
   });
 });
 
-// LISTAR HISTÓRICO DE AÇÕES
-app.get('/api/historico', (req, res) => {
+app.get('/api/historico', verificarSessaoApi, (req, res) => {
   db.query('SELECT * FROM historico ORDER BY id DESC LIMIT 100', (err, rows) => {
     if (err) {
       logger.error(`Erro no GET /api/historico: ${err.message}`);
@@ -335,37 +309,22 @@ app.get('/api/historico', (req, res) => {
   });
 });
 
-// REGISTRAR HISTÓRICO DE AÇÃO
-app.post('/api/historico', (req, res) => {
-  const { servidor_nome, acao, usuario_execucao, status, detalhes } = req.body;
+// 7. ROTAS DE FRONTEND COM PROTEÇÃO DE SESSÃO
+const verificarSessaoPage = (req, res, next) => {
+  if (req.session && req.session.autenticado) {
+    return next();
+  }
+  return res.redirect('/index.html');
+};
 
-  const query = `
-    INSERT INTO historico (servidor_nome, acao, usuario_execucao, status, detalhes)
-    VALUES (?, ?, ?, ?, ?)
-  `;
-
-  db.query(query, [servidor_nome, acao, usuario_execucao, status, detalhes || ''], function (err, result) {
-    if (err) {
-      logger.error(`Erro no POST /api/historico: ${err.message}`);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-    res.json({ success: true, id: result.insertId });
-  });
-});
-
-// 5. Rotas principais do Frontend com Proteção de Sessão
 app.get('/', (req, res) => {
   if (req.session && req.session.autenticado) {
     return res.sendFile(path.join(PASTA_FRONTEND, 'dashboard.html'));
   }
-  res.sendFile(path.join(PASTA_FRONTEND, 'login.html'));
+  res.sendFile(path.join(PASTA_FRONTEND, 'index.html'));
 });
 
-app.get('/login.html', (req, res) => {
-  res.sendFile(path.join(PASTA_FRONTEND, 'login.html'));
-});
-
-app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html'], verificarSessao, (req, res) => {
+app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html', '/historico.html'], verificarSessaoPage, (req, res) => {
   let paginaDesejada = req.path.substring(1);
   if (!paginaDesejada.includes('.html')) paginaDesejada += '.html';
   
@@ -377,14 +336,14 @@ app.get(['/dashboard', '/dashboard.html', '/usuarios.html', '/monitoramento.html
   }
 });
 
-// 6. Middleware Global de Tratamento de Erros (Evita vazamento de stack traces)
+// Middleware Global de Tratamento de Erros
 app.use((err, req, res, next) => {
-  logger.error(`Erro interno não tratado: ${err.message} - Stack: ${err.stack}`);
-  res.status(500).json({ success: false, error: 'Ocorreu um erro interno no servidor. Tente novamente mais tarde.' });
+  logger.error(`Erro interno não tratado: ${err.message}`);
+  res.status(500).json({ success: false, error: 'Ocorreu um erro interno no servidor.' });
 });
 
-// Inicialização do Servidor HTTP
+// Inicialização
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Servidor rodando em: http://localhost:${PORT}`);
-  logger.info(`Servindo arquivos do frontend de: ${PASTA_FRONTEND}`);
+  logger.info(`Frontend em: ${PASTA_FRONTEND}`);
 });
