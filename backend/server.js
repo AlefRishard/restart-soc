@@ -119,14 +119,14 @@ const verificarSessaoApi = (req, res, next) => {
 app.use((req, res, next) => {
   const caminho = req.path.toLowerCase();
 
-  // Recursos públicos que podem carregar livremente sem login
+  // Recursos públicos, APIs livres e arquivos estáticos públicos permitidos sem login
   if (
     caminho === '/login.html' || 
     caminho === '/index.html' ||
     caminho === '/' ||
     caminho === '/api/login' || 
     caminho === '/api/check-session' ||
-    caminho === '/auth-guard.js' || // Essencial para o guard carregar!
+    caminho === '/auth-guard.js' ||
     caminho.endsWith('.css') || 
     caminho.endsWith('.js') || 
     caminho.endsWith('.png') || 
@@ -147,9 +147,15 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Se for qualquer tentativa de acessar páginas HTML sem estar autenticado, expulsa imediatamente
-  if (!req.session || !req.session.autenticado) {
-    return res.redirect('/index.html');
+  // BLINDAGEM: Se qualquer arquivo .html for requisitado diretamente sem estar autenticado, barra na hora!
+  if (caminho.endsWith('.html') || !req.session || !req.session.autenticado) {
+    if (!req.session || !req.session.autenticado) {
+      // Se for requisição de página/HTML, redireciona para o index
+      if (caminho.endsWith('.html') || req.headers.accept?.includes('text/html')) {
+        return res.redirect('/index.html');
+      }
+      return res.status(401).json({ success: false, message: 'Não autorizado.' });
+    }
   }
 
   next();
