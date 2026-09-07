@@ -107,11 +107,11 @@ const verificarSessaoApi = (req, res, next) => {
   return res.status(401).json({ success: false, message: 'Não autorizado. Faça login novamente.' });
 };
 
-// 4. BLOQUEIO DE SEGURANÇA PARA PÁGINAS HTML E ARQUIVOS ESTÁTICOS PROTEGIDOS
+// 1. BLOQUEIO TOTAL IMEDIATO: Nenhuma página protegida ou arquivo HTML interno é acessível sem sessão
 app.use((req, res, next) => {
   const caminho = req.path.toLowerCase();
 
-  // Liberar rotas públicas, login, assets e arquivos estáticos essenciais
+  // Rotas, páginas públicas e recursos estáticos permitidos sem login
   if (
     caminho === '/login.html' || 
     caminho === '/index.html' ||
@@ -129,18 +129,23 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Se não estiver autenticado e tentar acessar qualquer HTML interno ou API protegida
-  if (!req.session || !req.session.autenticado) {
-    if (caminho.startsWith('/api/')) {
+  // Se for qualquer API protegida e não estiver autenticado
+  if (caminho.startsWith('/api/')) {
+    if (!req.session || !req.session.autenticado) {
       return res.status(401).json({ success: false, message: 'Não autorizado.' });
     }
-    return res.redirect('/login.html');
+    return next();
+  }
+
+  // Se o usuário tentar acessar qualquer HTML interno (dashboard, usuarios, etc.) sem sessão
+  if (!req.session || !req.session.autenticado) {
+    return res.redirect('/index.html');
   }
 
   next();
 });
 
-// Servir arquivos estáticos do frontend
+// 2. Servir arquivos estáticos (agora protegidos pelo middleware acima)
 app.use(express.static(PASTA_FRONTEND));
 
 // 5. CONEXÃO COM O BANCO DE DADOS MYSQL
