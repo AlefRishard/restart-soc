@@ -98,9 +98,9 @@ criarTabelas();
 app.post('/api/login', (req, res) => {
   const { email, senha } = req.body;
 
-  // As variáveis de ambiente protegem contra o bloqueio do GitHub
+  // Sem strings sensíveis fixas no código para evitar bloqueio do scanner do GitHub
   const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com';
-  const ADMIN_SENHA = process.env.ADMIN_SENHA || 'senha_local_123'; 
+  const ADMIN_SENHA = process.env.ADMIN_SENHA; 
 
   if (!email || !senha) {
     return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
