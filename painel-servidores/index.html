@@ -2,7 +2,6 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RESTART - Login</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -21,6 +20,9 @@
     <div class="card-login">
       <h2>Bem-vindo</h2>
 
+      <!-- Elemento opcional para exibir mensagens de erro direto na tela -->
+      <div id="msg-erro" style="display: none; background: #fee2e2; color: #dc2626; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9rem; text-align: center;"></div>
+
       <form id="form-login">
         <div class="form-group">
           <label for="email">Email</label>
@@ -34,7 +36,7 @@
           <label for="senha">Senha</label>
           <div class="input-wrapper">
             <i class="fa-solid fa-lock input-icon"></i>
-            <input type="password" id="senha" autocomplete="new-password" required placeholder="Sua senha">
+            <input type="password" id="senha" autocomplete="current-password" required placeholder="Sua senha">
             <i class="fa-regular fa-eye toggle-password" id="btn-eye" style="cursor: pointer;"></i>
           </div>
         </div>
@@ -73,12 +75,15 @@
 
       // Tratamento do envio do formulário de login
       const formLogin = document.getElementById('form-login');
+      const msgErro = document.getElementById('msg-erro');
+
       if (formLogin) {
         formLogin.addEventListener('submit', async (e) => {
           e.preventDefault();
+          if (msgErro) msgErro.style.display = 'none';
 
-          const email = document.getElementById('email')?.value || '';
-          const senha = document.getElementById('senha')?.value || '';
+          const email = document.getElementById('email')?.value.trim() || '';
+          const senha = document.getElementById('senha')?.value.trim() || '';
 
           try {
             const res = await fetch(`${API_URL}/login`, {
@@ -90,17 +95,27 @@
             const data = await res.json().catch(() => ({}));
 
             if (res.ok && data.success) {
-              // Salva os dados do usuário autenticado no localStorage
               if (data.usuario) {
                 localStorage.setItem('usuarioLogado', JSON.stringify(data.usuario));
               }
               window.location.href = 'dashboard.html';
             } else {
-              alert('Falha no login: ' + (data.message || 'E-mail ou senha incorretos.'));
+              const erroMsg = data.message || 'E-mail ou senha incorretos.';
+              if (msgErro) {
+                msgErro.textContent = erroMsg;
+                msgErro.style.display = 'block';
+              } else {
+                alert('Falha no login: ' + erroMsg);
+              }
             }
           } catch (err) {
             console.error('Erro no login:', err);
-            alert('Erro de conexão com o servidor.');
+            if (msgErro) {
+              msgErro.textContent = 'Erro de conexão com o servidor.';
+              msgErro.style.display = 'block';
+            } else {
+              alert('Erro de conexão com o servidor.');
+            }
           }
         });
       }
