@@ -6,6 +6,7 @@ const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const session = require('express-session');
+const bcrypt = require('bcrypt');
 
 // Importação segura do logger para evitar erros de tipo
 let loggerModule = require('./logger');
@@ -60,38 +61,131 @@ if (!fs.existsSync(PASTA_FRONTEND)) {
 
 logger.info(`Caminho do Frontend configurado em: ${PASTA_FRONTEND}`);
 
-// 3. ROTA DE LOGIN
-app.post('/api/login', loginLimiter, (req, res) => {
+// 6. CONEXÃO COM O BANCO DE DADOS MYSQL (Movida para cima para ser usada no login)
+const db = mysql.createPool({
+  host: process.env.DB_HOST || '127.0.0.1',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'restart_db',
+  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+db.getConnection((err, connection) => {
+  if (err) {
+    logger.error(`Erro ao conectar no MySQL: ${err.message}`);
+  } else {
+    logger.info('Banco de dados MySQL conectado com sucesso!');
+    connection.release();
+  }
+});
+
+// Criar tabelas se não existirem (Incluindo a tabela de usuários)
+const criarTabelas = () => {
+  const queries = [
+    `CREATE TABLE IF NOT EXISTS usuarios (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      nome VARCHAR(150) NOT NULL,
+      email VARCHAR(150) UNIQUE NOT NULL,
+      perfil VARCHAR(50) DEFAULT 'Administrador',
+      senha VARCHAR(255) NOT NULL,
+      status VARCHAR(50) DEFAULT 'Ativo',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS servidores (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      nome VARCHAR(150) NOT NULL,
+      url VARCHAR(255) NOT NULL,
+      tipo VARCHAR(50) DEFAULT 'Ping',
+      usuario VARCHAR(100) NOT NULL,
+      senha VARCHAR(255) DEFAULT '',
+      senha_sudo VARCHAR(255) DEFAULT '',
+      container VARCHAR(150) DEFAULT '',
+      porta VARCHAR(50) DEFAULT '',
+      caminho_projeto VARCHAR(255) DEFAULT '',
+      tem_reboot INT DEFAULT 1,
+      tem_acoes INT DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS historico (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      servidor_nome VARCHAR(150) NOT NULL,
+      acao VARCHAR(100) NOT NULL,
+      usuario_execucao VARCHAR(100) NOT NULL,
+      status VARCHAR(50) NOT NULL,
+      detalhes TEXT,
+      data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`
+  ];
+
+  queries.forEach(query => {
+    db.query(query, (err) => {
+      if (err) logger.error(`Erro ao criar tabela: ${err.message}`);
+    });
+  });
+};
+
+criarTabelas();
+
+// 3. ROTA DE LOGIN (Agora consulta diretamente a tabela `usuarios` no MySQL)
+app.post('/api/login', loginLimiter, async (req, res) => {
   const email = (req.body.email || '').trim();
   const senha = (req.body.senha || '').trim();
-
-  const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin.neguin591@gmail.com').trim();
-  const ADMIN_SENHA = (process.env.ADMIN_SENHA || '').trim(); 
 
   if (!email || !senha) {
     return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
   }
 
-  if (email === ADMIN_EMAIL && senha === ADMIN_SENHA) {
+  // Consulta o usuário no banco de dados
+  db.query('SELECT * FROM usuarios WHERE email = ? AND status = "Ativo"', [email], async (err, rows) => {
+    if (err) {
+      logger.error(`Erro no login (consulta SQL): ${err.message}`);
+      return res.status(500).json({ success: false, message: 'Erro interno no servidor.' });
+    }
+
+    if (!rows || rows.length === 0) {
+      logger.warn(`Tentativa de login falha para e-mail inexistente ou inativo: ${email}`);
+      return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
+    }
+
+    const usuarioDb = rows[0];
+
+    // Validação de senha: suporte a bcrypt OU texto plano (caso tenha salvo direto no banco)
+    let senhaValida = false;
+    try {
+      if (usuarioDb.senha.startsWith('$2b$') || usuarioDb.senha.startsWith('$2a$')) {
+        senhaValida = await bcrypt.compare(senha, usuarioDb.senha);
+      } else {
+        senhaValida = (senha === usuarioDb.senha);
+      }
+    } catch (hashErr) {
+      senhaValida = (senha === usuarioDb.senha);
+    }
+
+    if (!senhaValida) {
+      logger.warn(`Tentativa de login falha (senha incorreta) para o e-mail: ${email}`);
+      return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
+    }
+
+    // Criação da Sessão
     req.session.autenticado = true;
     req.session.usuario = {
-      id: 1,
-      nome: 'Administrador',
-      email: ADMIN_EMAIL,
-      perfil: 'Admin',
-      status: 'Ativo'
+      id: usuarioDb.id,
+      nome: usuarioDb.nome,
+      email: usuarioDb.email,
+      perfil: usuarioDb.perfil,
+      status: usuarioDb.status
     };
 
-    logger.info(`Login bem-sucedido para o administrador: ${ADMIN_EMAIL}`);
+    logger.info(`Login bem-sucedido para o usuário: ${email}`);
     return res.json({
       success: true,
       message: 'Login realizado com sucesso!',
       usuario: req.session.usuario
     });
-  }
-
-  logger.warn(`Tentativa de login falha para o e-mail: ${email}`);
-  return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
+  });
 });
 
 // Rota de Logout
@@ -174,65 +268,6 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(PASTA_FRONTEND, 'index.html'));
 });
 
-// 6. CONEXÃO COM O BANCO DE DADOS MYSQL
-const db = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'restart_db',
-  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
-
-db.getConnection((err, connection) => {
-  if (err) {
-    logger.error(`Erro ao conectar no MySQL: ${err.message}`);
-  } else {
-    logger.info('Banco de dados MySQL conectado com sucesso!');
-    connection.release();
-  }
-});
-
-// Criar tabelas se não existirem
-const criarTabelas = () => {
-  const queries = [
-    `CREATE TABLE IF NOT EXISTS servidores (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      nome VARCHAR(150) NOT NULL,
-      url VARCHAR(255) NOT NULL,
-      tipo VARCHAR(50) DEFAULT 'Ping',
-      usuario VARCHAR(100) NOT NULL,
-      senha VARCHAR(255) DEFAULT '',
-      senha_sudo VARCHAR(255) DEFAULT '',
-      container VARCHAR(150) DEFAULT '',
-      porta VARCHAR(50) DEFAULT '',
-      caminho_projeto VARCHAR(255) DEFAULT '',
-      tem_reboot INT DEFAULT 1,
-      tem_acoes INT DEFAULT 1,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS historico (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      servidor_nome VARCHAR(150) NOT NULL,
-      acao VARCHAR(100) NOT NULL,
-      usuario_execucao VARCHAR(100) NOT NULL,
-      status VARCHAR(50) NOT NULL,
-      detalhes TEXT,
-      data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`
-  ];
-
-  queries.forEach(query => {
-    db.query(query, (err) => {
-      if (err) logger.error(`Erro ao criar tabela: ${err.message}`);
-    });
-  });
-};
-
-criarTabelas();
-
 // 7. ROTAS DE API PROTEGIDAS
 app.get('/api/servidores', verificarSessaoApi, (req, res) => {
   db.query('SELECT * FROM servidores ORDER BY id DESC', (err, rows) => {
@@ -311,7 +346,7 @@ app.post('/api/servidores/:id/:acao', verificarSessaoApi, (req, res) => {
     const nomeAcaoLog = acoesValidas[acao] || acao.toUpperCase();
 
     const logQuery = `INSERT INTO historico (servidor_nome, acao, usuario_execucao, status, detalhes) VALUES (?, ?, ?, ?, ?)`;
-    db.query(logQuery, [servidor.nome, nomeAcaoLog, servidor.usuario || 'Sistema', 'SUCESSO', `Comando ${acao} executado com sucesso.`]);
+    db.query(logQuery, [servidor.nome, nomeAcaoLog, req.session.usuario?.nome || 'Sistema', 'SUCESSO', `Comando ${acao} executado com sucesso.`]);
 
     logger.info(`Ação '${acao}' executada no servidor ${servidor.nome}`);
     res.json({ success: true, message: `Ação ${acao} executada com sucesso em ${servidor.nome}` });
