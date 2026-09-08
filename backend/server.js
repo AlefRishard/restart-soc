@@ -129,10 +129,12 @@ const criarTabelas = () => {
 
 criarTabelas();
 
-// 3. ROTA DE LOGIN (Agora consulta diretamente a tabela `usuarios` no MySQL)
+// 3. ROTA DE LOGIN (Com logs detalhados de depuração)
 app.post('/api/login', loginLimiter, async (req, res) => {
   const email = (req.body.email || '').trim();
   const senha = (req.body.senha || '').trim();
+
+  console.log(`[DEBUG LOGIN] Tentativa recebida para email: "${email}", senha informada: "${senha}"`);
 
   if (!email || !senha) {
     return res.status(400).json({ success: false, message: 'E-mail e senha são obrigatórios.' });
@@ -147,12 +149,14 @@ app.post('/api/login', loginLimiter, async (req, res) => {
 
     if (!rows || rows.length === 0) {
       logger.warn(`Tentativa de login falha para e-mail inexistente ou inativo: ${email}`);
+      console.log(`[DEBUG LOGIN] Nenhum usuário encontrado com o e-mail: "${email}" e status "Ativo".`);
       return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
     }
 
     const usuarioDb = rows[0];
+    console.log(`[DEBUG LOGIN] Usuário encontrado no banco. ID: ${usuarioDb.id}, Senha hash/texto no BD: "${usuarioDb.senha}"`);
 
-    // Validação de senha: suporte a bcrypt OU texto plano (caso tenha salvo direto no banco)
+    // Validação de senha: suporte a bcrypt OU texto plano
     let senhaValida = false;
     try {
       if (usuarioDb.senha.startsWith('$2b$') || usuarioDb.senha.startsWith('$2a$')) {
@@ -161,11 +165,13 @@ app.post('/api/login', loginLimiter, async (req, res) => {
         senhaValida = (senha === usuarioDb.senha);
       }
     } catch (hashErr) {
+      console.log(`[DEBUG LOGIN] Erro ao comparar bcrypt, caindo para texto plano: ${hashErr.message}`);
       senhaValida = (senha === usuarioDb.senha);
     }
 
     if (!senhaValida) {
       logger.warn(`Tentativa de login falha (senha incorreta) para o e-mail: ${email}`);
+      console.log(`[DEBUG LOGIN] Senha inválida para o e-mail: "${email}". Senha informada difere da cadastrada.`);
       return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
     }
 
