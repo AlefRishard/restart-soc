@@ -129,7 +129,7 @@ const criarTabelas = () => {
 
 criarTabelas();
 
-// 3. ROTA DE LOGIN (Com logs detalhados de depuração)
+// 3. ROTA DE LOGIN (Atualizada para validação direta em texto plano)
 app.post('/api/login', loginLimiter, async (req, res) => {
   const email = (req.body.email || '').trim();
   const senha = (req.body.senha || '').trim();
@@ -154,22 +154,10 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     }
 
     const usuarioDb = rows[0];
-    console.log(`[DEBUG LOGIN] Usuário encontrado no banco. ID: ${usuarioDb.id}, Senha hash/texto no BD: "${usuarioDb.senha}"`);
+    console.log(`[DEBUG LOGIN] Usuário encontrado no banco. ID: ${usuarioDb.id}, Senha no BD: "${usuarioDb.senha}"`);
 
-    // Validação de senha: suporte a bcrypt OU texto plano
-    let senhaValida = false;
-    try {
-      if (usuarioDb.senha.startsWith('$2b$') || usuarioDb.senha.startsWith('$2a$')) {
-        senhaValida = await bcrypt.compare(senha, usuarioDb.senha);
-      } else {
-        senhaValida = (senha === usuarioDb.senha);
-      }
-    } catch (hashErr) {
-      console.log(`[DEBUG LOGIN] Erro ao comparar bcrypt, caindo para texto plano: ${hashErr.message}`);
-      senhaValida = (senha === usuarioDb.senha);
-    }
-
-    if (!senhaValida) {
+    // Validação direta em texto plano para garantir o funcionamento imediato
+    if (senha !== usuarioDb.senha) {
       logger.warn(`Tentativa de login falha (senha incorreta) para o e-mail: ${email}`);
       console.log(`[DEBUG LOGIN] Senha inválida para o e-mail: "${email}". Senha informada difere da cadastrada.`);
       return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos.' });
